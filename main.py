@@ -1,957 +1,656 @@
 #!/usr/bin/env python3
-"""The World in One Picture -- Thursday 19 November 2026. Round 2.
+"""THE WORLD IN ONE PICTURE - Thursday 19 November 2026.
 
-Draws a 1024x1024 newspaper front page that sums up 19 November 2026
-in a single image: 48 stories first reported that day, 13 of them as
-illustrated lead cards with detailed flat-vector scenes, a
-by-the-numbers strip, region and field count bars, a dotted world map
-with numbered pins, 35 one-line briefs, and a date-check footer that
-names the big 18 November stories left out on purpose.
-
-Round 2 fixes round 1: headlines are drawn bold (every glyph struck
-twice, one pixel apart) so the letters read at small sizes; the
-Anthropic lead now says priced at $83, $81.3bn raised, the largest IPO
-on record; the Van Gogh sale, the Jeffries nomination, the Fed minutes,
-the EU loan, the Gaza raid, the Voyager crossing and Duckett's 133 are
-out, because each was first reported on 18 November; the cricket lead
-keeps Jasprit Bumrah's name and adds the lunch score.
-
-Python standard library only. No network, no clock, no randomness:
-two runs produce byte-identical PNGs.
-
-Run:  python3 main.py
-Writes entry.png next to this file, or to $MAKEFUN_OUTPUT_DIR/entry.png
-when that variable is set (the grader runs with /bot read-only).
+Draws a 1024x1024 newspaper front page (48 stories) as a PNG.
+Standard library only. Deterministic: no time, no randomness.
+Writes entry.png beside this script, or to $MAKEFUN_OUTPUT_DIR.
 """
-
-import math
 import os
 import struct
 import zlib
 
 W, H = 1024, 1024
-
-# ---------------------------------------------------------------- palette
-PAPER = (250, 246, 236)
-INK = (24, 22, 20)
-GREY = (105, 100, 92)
-LIGHT = (232, 226, 214)
-RED = (178, 34, 34)
-BLUE = (28, 68, 128)
+PAPER = (247, 242, 231)
+INK = (17, 17, 17)
+RED = (179, 35, 27)
+NAVY = (20, 38, 77)
 TEAL = (14, 110, 110)
-GOLD = (198, 142, 28)
-GREEN = (46, 125, 50)
-ORANGE = (214, 110, 30)
-PURPLE = (96, 58, 140)
-PINK = (214, 90, 130)
-SKY = (140, 190, 220)
-SEA = (34, 96, 150)
-SAND = (224, 200, 150)
-CREAM = (244, 230, 200)
-WHITE = (255, 255, 255)
-BLACK = (10, 10, 10)
-DARK = (32, 32, 48)
-LEAF = (58, 140, 70)
+GOLD = (201, 141, 32)
+SKY = (168, 208, 232)
+GREY = (110, 108, 100)
 
-# ------------------------------------------------------- 5x7 bitmap font
-# Each glyph: seven rows of five characters, '#' on, '.' off.
-# Drawn from scratch for this page. Bold text strikes every glyph
-# twice, one pixel to the right, so the strokes read at small sizes.
-FONT = {
-    "A": (" ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #"),
-    "B": ("#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### "),
-    "C": (" ####", "#    ", "#    ", "#    ", "#    ", "#    ", " ####"),
-    "D": ("#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### "),
-    "E": ("#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####"),
-    "F": ("#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#    "),
-    "G": (" ####", "#    ", "#    ", "# ###", "#   #", "#   #", " ### "),
-    "H": ("#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #"),
-    "I": (" ### ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### "),
-    "J": ("  ###", "   # ", "   # ", "   # ", "   # ", "#  # ", " ##  "),
-    "K": ("#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #"),
-    "L": ("#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####"),
-    "M": ("#   #", "## ##", "# # #", "# # #", "#   #", "#   #", "#   #"),
-    "N": ("#   #", "##  #", "##  #", "# # #", "#  ##", "#  ##", "#   #"),
-    "O": (" ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "),
-    "P": ("#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    "),
-    "Q": (" ### ", "#   #", "#   #", "#   #", "# # #", "#  # ", " ## #"),
-    "R": ("#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #"),
-    "S": (" ####", "#    ", "#    ", " ### ", "    #", "    #", "#### "),
-    "T": ("#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  "),
-    "U": ("#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### "),
-    "V": ("#   #", "#   #", "#   #", "#   #", "#   #", " # # ", "  #  "),
-    "W": ("#   #", "#   #", "#   #", "# # #", "# # #", "## ##", "#   #"),
-    "X": ("#   #", "#   #", " # # ", "  #  ", " # # ", "#   #", "#   #"),
-    "Y": ("#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  "),
-    "Z": ("#####", "    #", "   # ", "  #  ", " #   ", "#    ", "#####"),
-    "a": ("     ", "     ", " ####", "    #", " ####", "#   #", " ####"),
-    "b": ("#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#### "),
-    "c": ("     ", "     ", " ####", "#    ", "#    ", "#    ", " ####"),
-    "d": ("    #", "    #", " ####", "#   #", "#   #", "#   #", " ####"),
-    "e": ("     ", "     ", " ### ", "#   #", "#####", "#    ", " ### "),
-    "f": ("  ## ", " #  #", " #   ", "#### ", " #   ", " #   ", " #   "),
-    "g": ("     ", "     ", " ####", "#   #", "#   #", " ####", "    #"),
-    "h": ("#    ", "#    ", "#### ", "#   #", "#   #", "#   #", "#   #"),
-    "i": ("     ", "  #  ", "     ", " ##  ", "  #  ", "  #  ", " ### "),
-    "j": ("     ", "   # ", "     ", "  ## ", "   # ", "   # ", "   # "),
-    "k": ("#    ", "#    ", "#  # ", "# #  ", "##   ", "# #  ", "#  # "),
-    "l": (" ##  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### "),
-    "m": ("     ", "     ", "## # ", "# # #", "# # #", "# # #", "# # #"),
-    "n": ("     ", "     ", "#### ", "#   #", "#   #", "#   #", "#   #"),
-    "o": ("     ", "     ", " ### ", "#   #", "#   #", "#   #", " ### "),
-    "p": ("     ", "     ", "#### ", "#   #", "#   #", "#### ", "#    "),
-    "q": ("     ", "     ", " ####", "#   #", "#   #", " ####", "    #"),
-    "r": ("     ", "     ", "# ## ", "##  #", "#    ", "#    ", "#    "),
-    "s": ("     ", "     ", " ####", "#    ", " ### ", "    #", "#### "),
-    "t": (" #   ", " #   ", "#### ", " #   ", " #   ", " #   ", "  ## "),
-    "u": ("     ", "     ", "#   #", "#   #", "#   #", "#   #", " ### "),
-    "v": ("     ", "     ", "#   #", "#   #", "#   #", " # # ", "  #  "),
-    "w": ("     ", "     ", "#   #", "# # #", "# # #", "# # #", " # # "),
-    "x": ("     ", "     ", "#   #", " # # ", "  #  ", " # # ", "#   #"),
-    "y": ("     ", "     ", "#   #", "#   #", "#   #", " ####", "    #"),
-    "z": ("     ", "     ", "#####", "   # ", "  #  ", " #   ", "#####"),
-    "0": (" ### ", "#  ##", "# # #", "##  #", "#   #", "#   #", " ### "),
-    "1": ("  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", " ### "),
-    "2": (" ### ", "#   #", "    #", "   # ", "  #  ", " #   ", "#####"),
-    "3": ("#### ", "    #", "    #", " ### ", "    #", "    #", "#### "),
-    "4": ("   # ", "  ## ", " # # ", "#  # ", "#####", "   # ", "   # "),
-    "5": ("#####", "#    ", "#### ", "    #", "    #", "#   #", " ### "),
-    "6": (" ### ", "#    ", "#    ", "#### ", "#   #", "#   #", " ### "),
-    "7": ("#####", "    #", "   # ", "   # ", "  #  ", "  #  ", "  #  "),
-    "8": (" ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### "),
-    "9": (" ### ", "#   #", "#   #", " ####", "    #", "    #", " ### "),
-    " ": ("     ", "     ", "     ", "     ", "     ", "     ", "     "),
-    "!": ("  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "     ", "  #  "),
-    '"': (" # # ", " # # ", " # # ", "     ", "     ", "     ", "     "),
-    "#": (" # # ", " # # ", "#####", " # # ", "#####", " # # ", " # # "),
-    "$": ("  #  ", " ####", "# #  ", " ### ", "  # #", "#### ", "  #  "),
-    "%": ("##  #", "## # ", "   # ", "  #  ", " #   ", "# ## ", "#  ##"),
-    "&": (" ##  ", "#  # ", "#  # ", " #   ", "# # #", "#  # ", " ## #"),
-    "'": ("  #  ", "  #  ", " #   ", "     ", "     ", "     ", "     "),
-    "(": ("   # ", "  #  ", " #   ", " #   ", " #   ", "  #  ", "   # "),
-    ")": (" #   ", "  #  ", "   # ", "   # ", "   # ", "  #  ", " #   "),
-    "*": ("     ", " # # ", "  #  ", "#####", "  #  ", " # # ", "     "),
-    "+": ("     ", "     ", "  #  ", "#####", "  #  ", "     ", "     "),
-    ",": ("     ", "     ", "     ", "     ", " ##  ", "  #  ", " #   "),
-    "-": ("     ", "     ", "     ", "#####", "     ", "     ", "     "),
-    ".": ("     ", "     ", "     ", "     ", "     ", " ##  ", " ##  "),
-    "/": ("    #", "    #", "   # ", "  #  ", " #   ", "#    ", "#    "),
-    ":": ("     ", " ##  ", "     ", "     ", "     ", " ##  ", "     "),
-    ";": ("     ", " ##  ", "     ", "     ", " ##  ", "  #  ", " #   "),
-    "<": ("   # ", "  #  ", " #   ", "#    ", " #   ", "  #  ", "   # "),
-    "=": ("     ", "     ", "#####", "     ", "#####", "     ", "     "),
-    ">": (" #   ", "  #  ", "   # ", "    #", "   # ", "  #  ", " #   "),
-    "?": (" ### ", "#   #", "    #", "   # ", "  #  ", "     ", "  #  "),
-    "@": (" ### ", "#   #", "# ###", "# # #", "# ###", "#    ", " ### "),
-    "[": (" ### ", " #   ", " #   ", " #   ", " #   ", " #   ", " ### "),
-    "]": (" ### ", "   # ", "   # ", "   # ", "   # ", "   # ", " ### "),
-    "_": ("     ", "     ", "     ", "     ", "     ", "     ", "#####"),
-    "`": ("  #  ", "  #  ", "   # ", "     ", "     ", "     ", "     "),
-    "{": ("  ## ", "  #  ", "  #  ", "##   ", "  #  ", "  #  ", "  ## "),
-    "|": ("  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  "),
-    "}": ("##   ", "  #  ", "  #  ", "   ##", "  #  ", "  #  ", "##   "),
-    "~": ("     ", "     ", " ## #", "# ## ", "     ", "     ", "     "),
-    "\u20ac": (" ### ", "#   #", "#####", "#    ", "#####", "#   #", " ### "),
-}
+# ---------------------------------------------------------------- font: 5x7
+# Each glyph is 7 rows of 5 bits, written as strings. Lowercase maps to
+# uppercase, so M and W keep their full shapes and never read as rn.
+_G = {}
 
 
-def text_width(s, scale=1, bold=False):
-    """Pixel width of s at the given scale; bold adds one pixel a glyph."""
-    return len(s) * (5 * scale + scale) + (len(s) if bold else 0)
+def _g(ch, rows):
+    _G[ch] = tuple(int(r.replace("#", "1").replace(".", "0"), 2) for r in rows)
 
 
-def wrap_text(s, max_w, scale=1, bold=False):
-    """Greedy word wrap of s into lines no wider than max_w pixels."""
+_g("A", ["01110", "10001", "10001", "11111", "10001", "10001", "10001"])
+_g("B", ["11110", "10001", "10001", "11110", "10001", "10001", "11110"])
+_g("C", ["01110", "10001", "10000", "10000", "10000", "10001", "01110"])
+_g("D", ["11110", "10001", "10001", "10001", "10001", "10001", "11110"])
+_g("E", ["11111", "10000", "10000", "11110", "10000", "10000", "11111"])
+_g("F", ["11111", "10000", "10000", "11110", "10000", "10000", "10000"])
+_g("G", ["01110", "10001", "10000", "10111", "10001", "10001", "01111"])
+_g("H", ["10001", "10001", "10001", "11111", "10001", "10001", "10001"])
+_g("I", ["01110", "00100", "00100", "00100", "00100", "00100", "01110"])
+_g("J", ["00111", "00010", "00010", "00010", "00010", "10010", "01100"])
+_g("K", ["10001", "10010", "10100", "11000", "10100", "10010", "10001"])
+_g("L", ["10000", "10000", "10000", "10000", "10000", "10000", "11111"])
+_g("M", ["10001", "11011", "10101", "10101", "10001", "10001", "10001"])
+_g("N", ["10001", "11001", "10101", "10011", "10001", "10001", "10001"])
+_g("O", ["01110", "10001", "10001", "10001", "10001", "10001", "01110"])
+_g("P", ["11110", "10001", "10001", "11110", "10000", "10000", "10000"])
+_g("Q", ["01110", "10001", "10001", "10001", "10101", "10010", "01101"])
+_g("R", ["11110", "10001", "10001", "11110", "10100", "10010", "10001"])
+_g("S", ["01111", "10000", "10000", "01110", "00001", "00001", "11110"])
+_g("T", ["11111", "00100", "00100", "00100", "00100", "00100", "00100"])
+_g("U", ["10001", "10001", "10001", "10001", "10001", "10001", "01110"])
+_g("V", ["10001", "10001", "10001", "10001", "10001", "01010", "00100"])
+_g("W", ["10001", "10001", "10001", "10101", "10101", "10101", "01010"])
+_g("X", ["10001", "10001", "01010", "00100", "01010", "10001", "10001"])
+_g("Y", ["10001", "10001", "01010", "00100", "00100", "00100", "00100"])
+_g("Z", ["11111", "00001", "00010", "00100", "01000", "10000", "11111"])
+_g("0", ["01110", "10001", "10011", "10101", "11001", "10001", "01110"])
+_g("1", ["00100", "01100", "00100", "00100", "00100", "00100", "01110"])
+_g("2", ["01110", "10001", "00001", "00110", "01000", "10000", "11111"])
+_g("3", ["11110", "00001", "00001", "01110", "00001", "00001", "11110"])
+_g("4", ["00010", "00110", "01010", "10010", "11111", "00010", "00010"])
+_g("5", ["11111", "10000", "11110", "00001", "00001", "10001", "01110"])
+_g("6", ["01110", "10000", "10000", "11110", "10001", "10001", "01110"])
+_g("7", ["11111", "00001", "00010", "00100", "01000", "01000", "01000"])
+_g("8", ["01110", "10001", "10001", "01110", "10001", "10001", "01110"])
+_g("9", ["01110", "10001", "10001", "01111", "00001", "00001", "01110"])
+_g(".", ["00000", "00000", "00000", "00000", "00000", "01100", "01100"])
+_g(",", ["00000", "00000", "00000", "00000", "01100", "00100", "01000"])
+_g(":", ["00000", "01100", "01100", "00000", "01100", "01100", "00000"])
+_g(";", ["00000", "01100", "01100", "00000", "01100", "00100", "01000"])
+_g("!", ["00100", "00100", "00100", "00100", "00100", "00000", "00100"])
+_g("?", ["01110", "10001", "00001", "00110", "00100", "00000", "00100"])
+_g("'", ["00100", "00100", "01000", "00000", "00000", "00000", "00000"])
+_g('"', ["01010", "01010", "00000", "00000", "00000", "00000", "00000"])
+_g("-", ["00000", "00000", "00000", "01110", "00000", "00000", "00000"])
+_g("/", ["00001", "00010", "00010", "00100", "01000", "01000", "10000"])
+_g("(", ["00010", "00100", "01000", "01000", "01000", "00100", "00010"])
+_g(")", ["01000", "00100", "00010", "00010", "00010", "00100", "01000"])
+_g("$", ["00100", "01111", "10100", "01110", "00101", "11110", "00100"])
+_g("%", ["11001", "11010", "00010", "00100", "01000", "01011", "10011"])
+_g("&", ["01100", "10010", "10100", "01000", "10101", "10010", "01101"])
+_g("+", ["00000", "00100", "00100", "11111", "00100", "00100", "00000"])
+_g("=", ["00000", "00000", "11111", "00000", "11111", "00000", "00000"])
+_g("*", ["00000", "10101", "01110", "10101", "00000", "00000", "00000"])
+_g("#", ["01010", "01010", "11111", "01010", "11111", "01010", "01010"])
+_g("@", ["01110", "10001", "10111", "10101", "10110", "10000", "01110"])
+_g("_", ["00000", "00000", "00000", "00000", "00000", "00000", "11111"])
+_g("<", ["00010", "00100", "01000", "10000", "01000", "00100", "00010"])
+_g(">", ["01000", "00100", "00010", "00001", "00010", "00100", "01000"])
+_g("[", ["01110", "01000", "01000", "01000", "01000", "01000", "01110"])
+_g("]", ["01110", "00010", "00010", "00010", "00010", "00010", "01110"])
+_g(" ", ["00000", "00000", "00000", "00000", "00000", "00000", "00000"])
+
+SPACE_W = 6
+
+
+def glyph(ch):
+    ch = ch.upper()
+    if ch in ("’", "‘"):
+        ch = "'"
+    if ch in ("–", "—"):
+        ch = "-"
+    return _G.get(ch, _G[" "])
+
+
+def text_w(s, sc):
+    return len(s) * SPACE_W * sc
+
+
+def wrap(s, maxw, sc):
     words = s.split(" ")
     lines, cur = [], ""
-    for w in words:
-        trial = w if not cur else cur + " " + w
-        if text_width(trial, scale, bold) <= max_w or not cur:
+    for wd in words:
+        trial = wd if not cur else cur + " " + wd
+        if text_w(trial, sc) <= maxw or not cur:
             cur = trial
         else:
             lines.append(cur)
-            cur = w
+            cur = wd
     if cur:
         lines.append(cur)
     return lines
 
 
-# ------------------------------------------------------------------- sheet
-class Sheet:
-    """A 1024x1024 RGB canvas with flat-vector drawing helpers."""
-
-    def __init__(self, w=W, h=H, bg=PAPER):
+# ---------------------------------------------------------------- canvas
+class Canvas:
+    def __init__(self, w, h, bg):
         self.w, self.h = w, h
-        self.px = bytearray(bg) * (w * h)
+        self.px = bytearray(bg * (w * h))
 
-    def dot(self, x, y, c):
+    def set(self, x, y, c):
         if 0 <= x < self.w and 0 <= y < self.h:
             i = (y * self.w + x) * 3
             self.px[i:i + 3] = bytes(c)
 
-    def box(self, x, y, w, h, c):
-        for yy in range(max(0, y), min(self.h, y + h)):
-            i = (yy * self.w + max(0, x)) * 3
-            for xx in range(max(0, x), min(self.w, x + w)):
-                self.px[i:i + 3] = bytes(c)
-                i += 3
+    def rect(self, x, y, w, h, c):
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(self.w, x + w), min(self.h, y + h)
+        for yy in range(y0, y1):
+            i = (yy * self.w + x0) * 3
+            self.px[i:i + (x1 - x0) * 3] = bytes(c) * (x1 - x0)
 
     def frame(self, x, y, w, h, c, t=1):
-        self.box(x, y, w, t, c)
-        self.box(x, y + h - t, w, t, c)
-        self.box(x, y, t, h, c)
-        self.box(x + w - t, y, t, h, c)
+        self.rect(x, y, w, t, c)
+        self.rect(x, y + h - t, w, t, c)
+        self.rect(x, y, t, h, c)
+        self.rect(x + w - t, y, t, h, c)
 
-    def hline(self, x, y, w, c, t=1):
-        self.box(x, y, w, t, c)
+    def line(self, x0, y0, x1, y1, c):
+        dx, dy = abs(x1 - x0), abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        while True:
+            self.set(x0, y0, c)
+            if x0 == x1 and y0 == y1:
+                return
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
 
-    def vline(self, x, y, h, c, t=1):
-        self.box(x, y, t, h, c)
-
-    def disc(self, cx, cy, r, c):
+    def circle(self, cx, cy, r, c):
         for yy in range(cy - r, cy + r + 1):
             for xx in range(cx - r, cx + r + 1):
                 if (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r:
-                    self.dot(xx, yy, c)
+                    self.set(xx, yy, c)
 
-    def ring(self, cx, cy, r, c, t=2):
-        for yy in range(cy - r, cy + r + 1):
-            for xx in range(cx - r, cx + r + 1):
-                d = math.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-                if abs(d - r) <= t / 2 + 0.4:
-                    self.dot(xx, yy, c)
+    def disc(self, cx, cy, r, c):
+        self.circle(cx, cy, r, c)
 
-    def tri(self, x1, y1, x2, y2, x3, y3, c):
-        lo_x, hi_x = min(x1, x2, x3), max(x1, x2, x3)
-        lo_y, hi_y = min(y1, y2, y3), max(y1, y2, y3)
-        d = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
-        if d == 0:
-            return
-        for yy in range(lo_y, hi_y + 1):
-            for xx in range(lo_x, hi_x + 1):
-                a = ((y2 - y3) * (xx - x3) + (x3 - x2) * (yy - y3)) / d
-                b = ((y3 - y1) * (xx - x3) + (x1 - x3) * (yy - y3)) / d
-                cc = 1 - a - b
-                if a >= 0 and b >= 0 and cc >= 0:
-                    self.dot(xx, yy, c)
-
-    def poly(self, pts, c):
-        lo_y, hi_y = min(p[1] for p in pts), max(p[1] for p in pts)
-        for yy in range(lo_y, hi_y + 1):
+    def tri(self, ax, ay, bx, by, cx, cy, c):
+        ys = sorted([ay, by, cy])
+        for y in range(ys[0], ys[2] + 1):
             xs = []
-            n = len(pts)
-            for i in range(n):
-                x1, y1 = pts[i]
-                x2, y2 = pts[(i + 1) % n]
-                if (y1 <= yy < y2) or (y2 <= yy < y1):
-                    xs.append(x1 + (x2 - x1) * (yy - y1) / (y2 - y1))
-            xs.sort()
-            for k in range(0, len(xs) - 1, 2):
-                for xx in range(int(xs[k]), int(xs[k + 1]) + 1):
-                    self.dot(xx, yy, c)
+            for (x0, y0, x1, y1) in ((ax, ay, bx, by), (bx, by, cx, cy), (cx, cy, ax, ay)):
+                if y0 == y1:
+                    continue
+                if min(y0, y1) <= y <= max(y0, y1):
+                    xs.append(x0 + (x1 - x0) * (y - y0) / (y1 - y0))
+            if len(xs) >= 2:
+                for x in range(int(min(xs)), int(max(xs)) + 1):
+                    self.set(x, y, c)
 
-    def seg(self, x1, y1, x2, y2, c, t=1):
-        steps = max(abs(x2 - x1), abs(y2 - y1), 1)
-        for i in range(steps + 1):
-            x = int(x1 + (x2 - x1) * i / steps)
-            y = int(y1 + (y2 - y1) * i / steps)
-            for dy in range(t):
-                for dx in range(t):
-                    self.dot(x + dx, y + dy, c)
-
-    def glyph(self, x, y, ch, c, scale=1, bold=False):
-        rows = FONT.get(ch)
-        if rows is None:
-            rows = FONT["?"]
-        for r, row in enumerate(rows):
-            for col, mark in enumerate(row):
-                if mark == "#":
-                    for dy in range(scale):
-                        for dx in range(scale):
-                            self.dot(x + col * scale + dx, y + r * scale + dy, c)
-                            if bold:
-                                self.dot(x + col * scale + dx + 1,
-                                         y + r * scale + dy, c)
-
-    def text(self, x, y, s, c, scale=1, bold=False):
+    def text(self, x, y, s, sc, c, bold=False):
         cx = x
         for ch in s:
-            self.glyph(cx, y, ch, c, scale, bold)
-            cx += 5 * scale + scale + (1 if bold else 0)
+            g = glyph(ch)
+            for r in range(7):
+                bits = g[r]
+                for col in range(5):
+                    if bits >> (4 - col) & 1:
+                        self.rect(cx + col * sc, y + r * sc, sc, sc, c)
+                        if bold:
+                            self.rect(cx + col * sc + 1, y + r * sc, sc, sc, c)
+            cx += SPACE_W * sc
         return cx
 
-    def centred(self, y, s, c, scale=1, cx=None, bold=False):
-        if cx is None:
-            cx = self.w // 2
-        self.text(cx - text_width(s, scale, bold) // 2, y, s, c, scale, bold)
-
-    def sky_bands(self, x, y, w, h, top, bottom):
-        for i in range(h):
-            t = i / max(1, h - 1)
-            c = tuple(int(top[k] + (bottom[k] - top[k]) * t) for k in range(3))
-            self.box(x, y + i, w, 1, c)
+    def text_lines(self, x, y, lines, sc, c, bold=False, lh=None):
+        lh = lh or (7 * sc + 2)
+        for ln in lines:
+            self.text(x, y, ln, sc, c, bold)
+            y += lh
+        return y
 
 
-def _chunk(kind, data):
-    out = struct.pack(">I", len(data)) + kind + data
-    out += struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    return out
+def png_bytes(w, h, px):
+    raw = b"".join(b"\x00" + bytes(px[y * w * 3:(y + 1) * w * 3]) for y in range(h))
+
+    def chunk(t, data):
+        c = t + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
 
-def write_png(sheet, path):
-    raw = b"".join(
-        b"\x00" + bytes(sheet.px[y * sheet.w * 3:(y + 1) * sheet.w * 3])
-        for y in range(sheet.h))
-    png = (b"\x89PNG\r\n\x1a\n"
-           + _chunk(b"IHDR", struct.pack(">IIBBBBB", sheet.w, sheet.h,
-                                         8, 2, 0, 0, 0))
-           + _chunk(b"IDAT", zlib.compress(raw, 9))
-           + _chunk(b"IEND", b""))
-    with open(path, "wb") as fh:
-        fh.write(png)
-
-
-# ------------------------------------------------------------ lead scenes
-# Each scene draws a detailed flat-vector picture inside (x, y, w, h).
-def scene_gta(s, x, y, w, h):
-    s.sky_bands(x, y, w, h, (90, 40, 110), (235, 120, 60))
-    s.disc(x + w - 52, y + 26, 20, (255, 210, 90))
-    s.ring(x + w - 52, y + 26, 23, (255, 230, 150), 2)
-    for i, bh in enumerate((34, 52, 28, 44, 60, 36, 48)):
-        bx = x + 8 + i * 32
-        s.box(bx, y + h - 34 - bh, 26, bh, DARK)
-        for wy in range(0, bh - 6, 9):
-            for wx in (5, 15):
-                s.box(bx + wx, y + h - 30 - bh + wy, 4, 5, GOLD)
-    s.box(x, y + h - 34, w, 4, (20, 20, 40))
-    s.box(x, y + h - 30, w, 30, (30, 30, 60))
-    for dx in range(0, w, 26):
-        s.box(x + dx, y + h - 16, 14, 3, WHITE)
-    cx, cy = x + w // 2 - 40, y + h - 52
-    s.poly([(cx, cy + 12), (cx + 12, cy), (cx + 78, cy), (cx + 90, cy + 12)],
-           (255, 90, 160))
-    s.box(cx + 6, cy + 12, 78, 9, (200, 30, 110))
-    s.disc(cx + 18, cy + 23, 7, BLACK)
-    s.disc(cx + 72, cy + 23, 7, BLACK)
-    s.disc(cx + 18, cy + 23, 3, (180, 180, 180))
-    s.disc(cx + 72, cy + 23, 3, (180, 180, 180))
-    for px in (x + 14, x + w - 24):
-        s.seg(px, y + h - 34, px + 4, y + h - 58, LEAF, 2)
-        s.seg(px + 4, y + h - 58, px - 8, y + h - 52, LEAF, 2)
-        s.seg(px + 4, y + h - 58, px + 16, y + h - 52, LEAF, 2)
-    s.text(x + 24, y + 6, "VICE CITY", WHITE, 1, bold=True)
-
-
-def scene_summit(s, x, y, w, h):
-    s.box(x, y, w, h, (200, 220, 235))
-    for i, bh in enumerate((30, 46, 38, 54, 34)):
-        bx = x + 10 + i * 44
-        s.box(bx, y + h - 40 - bh, 34, bh, (120, 140, 170))
-        for wy in range(0, bh - 6, 8):
-            for wx in (6, 18):
-                s.box(bx + wx, y + h - 36 - bh + wy, 5, 4, (230, 240, 250))
-    s.box(x, y + h - 40, w, 40, (150, 160, 150))
-    s.box(x + 20, y + h - 34, w - 40, 6, (90, 60, 40))
-    for i, flag in enumerate(("us", "cn", "ru")):
-        fx = x + 30 + i * 70
-        s.vline(fx, y + 8, 40, INK, 2)
-        if flag == "us":
-            s.box(fx + 2, y + 10, 34, 20, RED)
-            s.box(fx + 2, y + 14, 34, 3, WHITE)
-            s.box(fx + 2, y + 21, 34, 3, WHITE)
-            s.box(fx + 2, y + 10, 14, 9, BLUE)
-        elif flag == "cn":
-            s.box(fx + 2, y + 10, 34, 20, RED)
-            s.disc(fx + 12, y + 18, 3, GOLD)
-            s.disc(fx + 24, y + 15, 2, GOLD)
-            s.disc(fx + 24, y + 23, 2, GOLD)
-        else:
-            s.box(fx + 2, y + 10, 34, 7, WHITE)
-            s.box(fx + 2, y + 17, 34, 6, BLUE)
-            s.box(fx + 2, y + 23, 34, 7, RED)
-    for i in range(3):
-        px = x + 44 + i * 70
-        s.disc(px, y + h - 52, 7, (60, 40, 30))
-        s.box(px - 8, y + h - 46, 16, 12, (40, 60, 120))
-    s.box(x + w // 2 - 46, y + h - 26, 92, 5, (90, 60, 40))
-    s.text(x + 8, y + h - 18, "APEC - SHENZHEN", INK, 1, bold=True)
-
-
-def scene_anthropic(s, x, y, w, h):
-    s.box(x, y, w, h, (12, 20, 44))
-    for gy in range(14, h - 8, 14):
-        s.hline(x + 8, y + gy, w - 16, (40, 55, 90), 1)
-    pts = [(x + 14, y + h - 18), (x + 46, y + h - 34), (x + 78, y + h - 26),
-           (x + 110, y + h - 48), (x + 142, y + h - 40), (x + 174, y + h - 62),
-           (x + 206, y + h - 70)]
-    for i in range(len(pts) - 1):
-        s.seg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], GREEN, 3)
-    s.tri(pts[-1][0] - 2, pts[-1][1] + 6, pts[-1][0] + 12, pts[-1][1] + 2,
-          pts[-1][0] - 2, pts[-1][1] - 4, GREEN)
-    for i, (bx, by, bh) in enumerate(((24, 0, 12), (56, 0, 18), (88, 0, 10),
-                                      (120, 0, 22), (152, 0, 14), (184, 0, 26))):
-        s.box(x + bx, y + h - 18 - bh, 10, bh, GREEN if i % 2 == 0 else RED)
-    s.disc(x + w - 34, y + h - 22, 12, GOLD)
-    s.box(x + w - 38, y + h - 26, 8, 4, GOLD)
-    s.text(x + 24, y + 6, "ANT  $83", GREEN, 1, bold=True)
-    s.text(x + 10, y + 18, "RECORD $81.3BN IPO", WHITE, 1, bold=True)
-
-
-def scene_crimea(s, x, y, w, h):
-    s.sky_bands(x, y, w, h, (150, 200, 230), (220, 235, 245))
-    s.box(x, y + h - 34, w, 34, SEA)
-    for wx in range(0, w, 30):
-        s.box(x + wx, y + h - 22, 16, 2, WHITE)
-    s.box(x, y + 44, w, 8, (120, 120, 125))
-    for px in range(10, w - 10, 34):
-        s.box(x + px, y + 52, 6, h - 86, (90, 90, 95))
-    s.tri(x + w // 2 - 46, y + 44, x + w // 2, y + 16, x + w // 2 + 46, y + 44,
-          (140, 140, 145))
-    gap = x + w // 2 - 12
-    s.box(gap, y + 44, 24, 8, SEA)
-    s.seg(gap, y + 52, gap - 8, y + 60, (90, 90, 95), 2)
-    s.seg(gap + 24, y + 52, gap + 32, y + 60, (90, 90, 95), 2)
-    ex, ey = x + w // 2, y + 34
-    for dx, dy in ((-16, -8), (14, -12), (-10, 10), (16, 8), (0, -16)):
-        s.seg(ex, ey, ex + dx, ey + dy, ORANGE, 3)
-    s.disc(ex, ey, 7, GOLD)
-    s.disc(ex - 18, ey - 14, 9, (120, 120, 120))
-    s.disc(ex + 20, ey - 10, 7, (120, 120, 120))
-    s.disc(ex + 26, ey - 18, 5, (140, 140, 140))
-    s.box(x + 24, y + 6, 74, 12, RED)
-    s.text(x + 26, y + 8, "3RD STRIKE", WHITE, 1, bold=True)
-
-
-def scene_icj(s, x, y, w, h):
-    s.box(x, y, w, h, (205, 225, 240))
-    s.disc(x + w // 2, y + 16, 12, (255, 220, 120))
-    s.tri(x + 40, y + 34, x + w - 40, y + 34, x + w // 2, y + 18, CREAM)
-    s.box(x + 40, y + 34, w - 80, 6, (170, 150, 120))
-    for i in range(5):
-        cx = x + 52 + i * 34
-        s.box(cx, y + 40, 10, 26, CREAM)
-        s.box(cx - 2, y + 38, 14, 3, (170, 150, 120))
-    s.box(x + 40, y + 66, w - 80, 5, (170, 150, 120))
-    s.box(x + 30, y + 71, w - 60, 4, (150, 130, 100))
-    s.box(x + 22, y + 75, w - 44, 4, (130, 110, 85))
-    s.box(x, y + h - 10, w, 10, LEAF)
-    cx, cy = x + w // 2, y + 52
-    s.vline(cx, cy - 8, 16, GOLD, 2)
-    s.seg(cx, cy - 8, cx - 12, cy - 2, GOLD, 2)
-    s.seg(cx, cy - 8, cx + 12, cy - 2, GOLD, 2)
-    s.tri(cx - 16, cy, cx - 8, cy, cx - 12, cy + 6, GOLD)
-    s.tri(cx + 8, cy, cx + 16, cy, cx + 12, cy + 6, GOLD)
-    s.text(x + 8, y + h - 22, "THE HAGUE", INK, 1, bold=True)
-
-
-def scene_cyclone(s, x, y, w, h):
-    s.box(x, y, w, h, (170, 205, 230))
-    cx, cy = x + w // 2 - 10, y + h // 2 + 4
-    for r in (30, 24, 18, 12):
-        s.ring(cx, cy, r, WHITE, 3)
-    s.disc(cx, cy, 6, DARK)
-    s.seg(cx + 30, cy - 6, cx + 44, cy - 14, WHITE, 2)
-    s.seg(cx - 30, cy + 8, cx - 46, cy + 16, WHITE, 2)
-    s.poly([(x + w - 52, y + h), (x + w - 30, y + 34), (x + w - 8, y + 52),
-            (x + w, y + h)], SAND)
-    s.box(x + w - 46, y + 40, 12, 10, ORANGE)
-    s.tri(x + w - 40, y + 30, x + w - 34, y + 40, x + w - 46, y + 40, ORANGE)
-    for i in range(6):
-        rx = x + 8 + i * 12
-        s.seg(rx, y + 10 + (i % 2) * 6, rx - 3, y + 22 + (i % 2) * 6, SKY, 1)
-    s.box(x, y + h - 12, w, 12, SEA)
-    s.text(x + 24, y + 6, "AKVAN - BAY OF BENGAL", INK, 1, bold=True)
-
-
-def scene_venezuela(s, x, y, w, h):
-    s.box(x, y, w, h, (240, 225, 190))
-    s.disc(x + 26, y + 16, 12, (255, 210, 90))
-    s.poly([(x + 90, y + h - 26), (x + 110, y + 18), (x + 130, y + 18),
-            (x + 150, y + h - 26)], (60, 60, 60))
-    s.seg(x + 120, y + 18, x + 150, y + h - 26, (60, 60, 60), 3)
-    s.seg(x + 104, y + 40, x + 136, y + 40, (60, 60, 60), 2)
-    s.seg(x + 98, y + 60, x + 142, y + 60, (60, 60, 60), 2)
-    s.box(x, y + h - 26, w, 26, (120, 95, 60))
-    for bx in (x + 12, x + 34, x + 56):
-        s.box(bx, y + h - 46, 16, 20, (40, 40, 90))
-        s.box(bx, y + h - 46, 16, 3, (25, 25, 60))
-    for i, (px, py) in enumerate(((170, 52), (190, 44), (206, 56))):
-        s.disc(x + px, y + py, 9, GOLD)
-        s.text(x + px - 3, y + py - 3, "$", INK, 1)
-    s.seg(x + 164, y + 66, x + 216, y + 30, GREEN, 3)
-    s.tri(x + 204, y + 26, x + 216, y + 30, x + 204, y + 36, GREEN)
-    s.text(x + 24, y + 6, "$12BN - CARACAS", INK, 1, bold=True)
-
-
-def scene_eisenkot(s, x, y, w, h):
-    s.box(x, y, w, h, (210, 225, 240))
-    s.box(x + 30, y + 40, w - 60, 30, CREAM)
-    s.tri(x + 30, y + 40, x + w - 30, y + 40, x + w // 2, y + 22, (170, 150, 120))
-    s.disc(x + w // 2, y + 30, 8, GOLD)
-    for i in range(4):
-        cx = x + 48 + i * 36
-        s.box(cx, y + 40, 10, 30, WHITE)
-    s.box(x + 24, y + 70, w - 48, 4, (150, 130, 100))
-    s.box(x + 18, y + 74, w - 36, 4, (130, 110, 85))
-    s.box(x, y + h - 10, w, 10, LEAF)
-    s.vline(x + 16, y + 8, 34, INK, 2)
-    s.box(x + 18, y + 10, 26, 16, WHITE)
-    s.box(x + 18, y + 15, 26, 6, BLUE)
-    s.disc(x + 31, y + 13, 2, BLUE)
-    px = x + w - 52
-    s.disc(px, y + 52, 7, (60, 40, 30))
-    s.box(px - 9, y + 58, 18, 14, (40, 60, 120))
-    s.box(x + w - 76, y + 62, 20, 12, (120, 90, 60))
-    s.box(x + w - 76, y + 58, 20, 4, (90, 65, 40))
-    s.text(x + 8, y + h - 22, "KNESSET", INK, 1, bold=True)
-
-
-def scene_gazaaid(s, x, y, w, h):
-    s.box(x, y, w, h, (215, 230, 235))
-    s.disc(x + 22, y + 14, 11, (255, 210, 90))
-    for i in range(3):
-        tx = x + 16 + i * 62
-        s.tri(tx, y + 34, tx + 22, y + 34, tx + 11, y + 20, WHITE)
-        s.box(tx, y + 34, 22, 12, (200, 195, 180))
-        s.box(tx + 8, y + 38, 6, 8, RED)
-    s.box(x, y + 52, w, 8, SAND)
-    for i in range(2):
-        tx = x + 30 + i * 96
-        s.box(tx, y + 60, 44, 14, WHITE)
-        s.box(tx + 44, y + 63, 14, 11, RED)
-        s.disc(tx + 10, y + 76, 4, BLACK)
-        s.disc(tx + 34, y + 76, 4, BLACK)
-        s.disc(tx + 52, y + 76, 4, BLACK)
-    s.box(x, y + h - 16, w, 16, (90, 140, 190))
-    for wx in range(0, w, 26):
-        s.box(x + wx, y + h - 10, 14, 2, WHITE)
-    s.text(x + 24, y + 6, "150,000 TENTS WAITING", INK, 1, bold=True)
-
-
-def scene_estonia(s, x, y, w, h):
-    s.box(x, y, w, h, (185, 215, 200))
-    for i, th in enumerate((30, 42, 34, 46, 28)):
-        tx = x + 12 + i * 18
-        s.tri(tx, y + h - 40 - th, tx + 12, y + h - 40 - th, tx + 6, y + h - 40,
-              (30, 100, 50))
-        s.box(tx + 5, y + h - 40, 2, 8, (90, 60, 40))
-    s.box(x, y + h - 34, w, 34, (110, 140, 100))
-    s.vline(x + w - 60, y + 8, 44, INK, 2)
-    s.box(x + w - 58, y + 10, 34, 9, BLUE)
-    s.box(x + w - 58, y + 19, 34, 9, BLACK)
-    s.box(x + w - 58, y + 28, 34, 9, WHITE)
-    for px in range(x + 110, x + w - 4, 22):
-        s.vline(px, y + 40, 34, (70, 70, 70), 2)
-    s.seg(x + 110, y + 44, x + w - 4, y + 40, (70, 70, 70), 1)
-    s.seg(x + 110, y + 56, x + w - 4, y + 52, (70, 70, 70), 1)
-    s.seg(x + 110, y + 68, x + w - 4, y + 64, (70, 70, 70), 1)
-    s.box(x + 12, y + 46, 14, 18, (90, 90, 95))
-    s.tri(x + 10, y + 46, x + 28, y + 46, x + 19, y + 36, RED)
-    s.text(x + 24, y + 6, "TALLINN", INK, 1, bold=True)
-
-
-def scene_spain(s, x, y, w, h):
-    s.box(x, y, w, h, (225, 220, 205))
-    s.disc(x + w - 26, y + 16, 11, (255, 210, 90))
-    s.box(x + 10, y + 34, 60, 26, (150, 90, 70))
-    s.box(x + 76, y + 26, 10, 34, (120, 70, 55))
-    s.box(x + 92, y + 20, 10, 40, (120, 70, 55))
-    for wx in (20, 38, 56):
-        s.box(x + wx, y + 42, 8, 8, GOLD)
-    s.box(x + 120, y + 40, 8, 20, (90, 90, 95))
-    s.seg(x + 124, y + 40, x + 150, y + 28, (90, 90, 95), 2)
-    s.seg(x + 124, y + 40, x + 98, y + 28, (90, 90, 95), 2)
-    s.box(x + 150, y + 44, 34, 16, (40, 90, 130))
-    s.box(x + 188, y + 44, 34, 16, (160, 60, 50))
-    s.box(x, y + 60, w, 4, (80, 80, 80))
-    for i in range(3):
-        px = x + 30 + i * 62
-        s.disc(px, y + 72, 6, (60, 40, 30))
-        s.box(px - 7, y + 76, 14, 10, (40, 60, 120))
-        s.vline(px + 10, y + 58, 16, (90, 60, 40), 2)
-        s.box(px + 12, y + 56, 26, 10, WHITE)
-    s.text(x + 24, y + 6, "HOUSING", INK, 1, bold=True)
-    s.box(x, y + h - 8, w, 8, (110, 110, 110))
-
-
-def scene_bumrah(s, x, y, w, h):
-    s.box(x, y, w, h, (90, 170, 100))
-    s.box(x + w // 2 - 16, y + 8, 32, h - 16, (200, 175, 130))
-    s.box(x + w // 2 - 16, y + 8, 32, 3, WHITE)
-    for sy in (y + 12, y + h - 24):
-        for k in range(3):
-            s.box(x + w // 2 - 9 + k * 7, sy, 3, 10, GOLD)
-    s.disc(x + 44, y + 26, 6, (60, 40, 30))
-    s.box(x + 38, y + 32, 12, 16, (20, 90, 160))
-    s.seg(x + 44, y + 30, x + 62, y + 48, (60, 40, 30), 2)
-    s.seg(x + 62, y + 48, x + 74, y + 56, (200, 170, 110), 3)
-    s.disc(x + w - 46, y + 30, 6, (60, 40, 30))
-    s.box(x + w - 52, y + 36, 12, 16, WHITE)
-    s.seg(x + w - 46, y + 40, x + w - 30, y + 52, (60, 40, 30), 2)
-    for i, (bx, by) in enumerate(((30, 60), (52, 66), (74, 62))):
-        s.disc(x + bx, y + by, 3, RED)
-    s.seg(x + 44, y + 30, x + w - 46, y + 30, WHITE, 1)
-    s.box(x + 8, y + h - 18, 96, 12, INK)
-    s.text(x + 10, y + h - 16, "NZ 60/4", WHITE, 1, bold=True)
-    s.text(x + w - 66, y + 6, "1ST OVER", INK, 1, bold=True)
-
-
-def scene_keach(s, x, y, w, h):
-    s.box(x, y, w, h, (40, 20, 50))
-    s.poly([(x + 30, y), (x + 70, y), (x + w // 2 + 26, y + h - 20),
-            (x + w // 2 - 26, y + h - 20)], (255, 240, 180))
-    s.box(x, y, 26, h, (160, 30, 40))
-    s.box(x + w - 26, y, 26, h, (160, 30, 40))
-    for i in range(4):
-        s.box(x + 4 + i * 6, y + 8 + i * 4, 3, h - 16 - i * 8, (120, 20, 30))
-        s.box(x + w - 7 - i * 6, y + 8 + i * 4, 3, h - 16 - i * 8, (120, 20, 30))
-    s.disc(x + w // 2, y + h - 34, 8, (60, 40, 30))
-    s.box(x + w // 2 - 10, y + h - 28, 20, 14, (30, 30, 60))
-    s.box(x + w // 2 - 4, y + h - 40, 8, 8, (60, 40, 30))
-    s.disc(x + 34, y + 22, 10, GOLD)
-    s.disc(x + 34, y + 22, 4, DARK)
-    s.box(x + w - 52, y + 14, 30, 20, (220, 220, 210))
-    s.box(x + w - 52, y + 14, 30, 4, INK)
-    s.seg(x + w - 52, y + 34, x + w - 22, y + 14, INK, 2)
-    s.text(x + w // 2 - 30, y + h - 14, "1941-2026", GOLD, 1, bold=True)
-
-
-SCENES = {
-    "gta": scene_gta, "summit": scene_summit, "anthropic": scene_anthropic,
-    "crimea": scene_crimea, "icj": scene_icj, "cyclone": scene_cyclone,
-    "venezuela": scene_venezuela, "eisenkot": scene_eisenkot,
-    "gazaaid": scene_gazaaid, "estonia": scene_estonia,
-    "spain": scene_spain, "bumrah": scene_bumrah, "keach": scene_keach,
-}
-
-
-# ------------------------------------------------------------------ stories
+# ---------------------------------------------------------------- data
+# region buckets: NAMERICA SAMERICA EUROPE MIDEAST AFRICA ASIA OCEANIA WORLD
+# fields: POLITICS BUSINESS TECH SCIENCE CULTURE SPORT CRIME WEATHER HEALTH
 LEADS = [
-    (1, "N. AMERICA", "CULTURE", "CULTURE - GAMES", "gta", -80.2, 25.8,
-     "Gamers enter Vice City as GTA VI begins its global rollout",
-     "After a 13-year wait, Rockstar's epic lands at midnight; pre-orders passed $1.5bn."),
-    (2, "ASIA", "POLITICS", "POLITICS - APEC", "summit", 114.1, 22.5,
-     "Trump, Xi and Putin meet in first three-way summit",
-     "Nuclear arms top the agenda in Shenzhen; no deal expected."),
-    (3, "N. AMERICA", "BUSINESS", "BUSINESS - AI", "anthropic", -122.4, 37.8,
-     "Anthropic debuts after record $81.3bn IPO",
-     "Priced at $83 a share; ANT lists on Nasdaq at a $1.5tn value."),
-    (4, "EUROPE", "POLITICS", "POLITICS - WAR", "crimea", 34.0, 45.3,
-     "Crimean Bridge hit a third time in a week",
-     "Railway section struck after midnight; traffic halted, damage unclear."),
-    (5, "EUROPE", "POLITICS", "POLITICS - LAW", "icj", 4.3, 52.1,
-     "World court rules on Myanmar genocide case",
-     "The Hague delivers its verdict today; Gambia brought the case in 2019."),
-    (6, "ASIA", "WEATHER", "WEATHER - INDIA", "cyclone", 85.3, 14.1,
-     "Cyclone Akvan nears India's east coast",
-     "Landfall due Friday; schools shut as rain begins in Odisha."),
-    (7, "S. AMERICA", "BUSINESS", "BUSINESS - OIL", "venezuela", -66.9, 10.5,
-     "US details $12bn in Venezuelan oil cash",
-     "State Dept report tracks the money a year after Maduro's capture."),
-    (8, "MIDDLE EAST", "POLITICS", "POLITICS - ISRAEL", "eisenkot", 35.2, 31.8,
-     "Eisenkot asked to form Israel's government",
-     "Herzog passes over Netanyahu; 67 in the Knesset back the ex-general."),
-    (9, "MIDDLE EAST", "POLITICS", "POLITICS - GAZA", "gazaaid", 34.5, 31.5,
-     "Four nations press Israel to open Gaza to aid",
-     "Floods add to Gaza's misery; 150,000 tents are stuck at the border."),
-    (10, "EUROPE", "POLITICS", "POLITICS - EUROPE", "estonia", 24.7, 59.4,
-     "Estonia to shut its border with Russia",
-     "Move follows a foiled attack on a drone maker; eight held."),
-    (11, "EUROPE", "BUSINESS", "BUSINESS - STRIKE", "spain", -3.7, 40.4,
-     "Spain's first general strike in 14 years",
-     "Ports and car plants halt in a protest over housing costs."),
-    (12, "OCEANIA", "SPORT", "SPORT - CRICKET", "bumrah", 174.8, -41.3,
-     "Bumrah bowls Latham for a duck at Wellington",
-     "India strike in the first over; NZ reach 60 for 4 at lunch."),
-    (13, "N. AMERICA", "CULTURE", "CULTURE - OBITUARY", "keach", -118.2, 34.1,
-     "Stacy Keach, TV's Mike Hammer, dies at 85",
-     "Six-decade career on stage and screen; he died in Poland."),
+    dict(n=1, kicker="VICE CITY - GAMES", head="GAMERS ENTER VICE CITY AS GTA VI LANDS",
+         deck="After a 13-year wait, Rockstar's epic lands at midnight. Pre-orders passed $1.5bn. Metacritic 99.",
+         region="WORLD", field="CULTURE", scene="gta", pin=(-74, 40),
+         src="Sensor Tower; Metacritic"),
+    dict(n=2, kicker="APEC - SHENZHEN", head="TRUMP, XI AND PUTIN MEET IN FIRST THREE-WAY SUMMIT",
+         deck="Nuclear arms and Iran top the agenda.",
+         region="ASIA", field="POLITICS", scene="apec", pin=(114, 22), src="Reuters"),
+    dict(n=3, kicker="BUSINESS - AI", head="ANTHROPIC DEBUTS AFTER RECORD $81.3BN IPO",
+         deck="Priced $83, ANT lists on Nasdaq.",
+         region="NAMERICA", field="BUSINESS", scene="ipo", pin=(-122, 37), src="Reuters"),
+    dict(n=4, kicker="POLITICS - WAR", head="CRIMEAN BRIDGE HIT A THIRD TIME IN A WEEK",
+         deck="Railway section struck. Traffic halted.",
+         region="EUROPE", field="POLITICS", scene="bridge", pin=(36, 45), src="Reuters"),
+    dict(n=5, kicker="POLITICS - LAW", head="WORLD COURT RULES ON MYANMAR GENOCIDE CASE",
+         deck="The Hague rules today. Filed in 2019.",
+         region="EUROPE", field="POLITICS", scene="court", pin=(4, 52), src="Reuters"),
+    dict(n=6, kicker="WEATHER - INDIA", head="CYCLONE AKVAN NEARS INDIA'S EAST COAST",
+         deck="Landfall due Friday. 200,000 evacuated.",
+         region="ASIA", field="WEATHER", scene="cyclone", pin=(86, 20), src="Reuters"),
+    dict(n=7, kicker="POLITICS - GAZA", head="ISRAELI TANKS CROSS GAZA CEASEFIRE LINE",
+         deck="First ground push since the truce.",
+         region="MIDEAST", field="POLITICS", scene="gaza", pin=(34, 31), src="World Attention"),
+    dict(n=8, kicker="BUSINESS - MARKETS", head="S AND P 500 FALLS FOR A FIFTH STRAIGHT DAY",
+         deck="Longest slide since June. Dow falls 561.",
+         region="NAMERICA", field="BUSINESS", scene="stocks", pin=(-87, 41), src="Traders Union"),
+    dict(n=9, kicker="SPORT - CRICKET", head="BUMRAH BOWLS LATHAM FOR A DUCK AT WELLINGTON",
+         deck="First-over strike. NZ 60 for 4.",
+         region="OCEANIA", field="SPORT", scene="cricket", pin=(174, -41), src="Reuters"),
+    dict(n=10, kicker="WEATHER - USA", head="FLOODED FLORIDA BRACES FOR STILL MORE RAIN",
+         deck="A foot of rain. Schools shut Thursday.",
+         region="NAMERICA", field="WEATHER", scene="flood", pin=(-80, 26), src="Florida Today"),
+    dict(n=11, kicker="POLITICS - SAUDI ARABIA", head="SAUDI DEFENCES DOWN A MISSILE AIMED SOUTH",
+         deck="Thursday intercept after Wed alerts.",
+         region="MIDEAST", field="POLITICS", scene="saudi", pin=(46, 24), src="The Chronicle"),
+    dict(n=12, kicker="BUSINESS - MEXICO", head="BANXICO MINUTES LAND AFTER ITS SPLIT RATE CUT",
+         deck="Minutes of the 3-2 cut to 6.25% out.",
+         region="NAMERICA", field="BUSINESS", scene="bank", pin=(-99, 19), src="Banxico"),
+    dict(n=13, kicker="POLITICS - INDIA", head="MODI MEETS WILLIAM AND KATE AS ROYAL TOUR ENDS",
+         deck="Earthshot week ends in Delhi today.",
+         region="ASIA", field="POLITICS", scene="royal", pin=(77, 28), src="BBC News"),
 ]
 
 BRIEFS = [
-    ("N. AMERICA", "POLITICS", "Canada retools China ties as Carney chases US deal"),
-    ("N. AMERICA", "TECH", "Senators: AI cyber threats outpacing US defences"),
-    ("EUROPE", "POLITICS", "Melenchon could win French presidency, minister says"),
-    ("MIDDLE EAST", "POLITICS", "Saudi Arabia: danger passed in three southern cities"),
-    ("AFRICA", "CRIME", "Cocaine, millions of pills seized in eastern Libya"),
-    ("ASIA", "POLITICS", "Congress presses Modi government on inflation"),
-    ("EUROPE", "CRIME", "McDonald's abuse: 'waiting for girls to turn 18'"),
-    ("EUROPE", "CRIME", "Russian held for spying on Palantir over Ukraine aid"),
-    ("ASIA", "POLITICS", "India, Japan to review defence ties in 2+2 talks"),
-    ("AFRICA", "POLITICS", "Somalia accuses UAE of secret bases on its soil"),
-    ("WORLD", "CULTURE", "Islam on track to be top faith by 2035, Pew says"),
-    ("WORLD", "BUSINESS", "Oil prices fall as Middle East risk rises"),
-    ("EUROPE", "POLITICS", "Prague crowds demand media freedom"),
-    ("EUROPE", "POLITICS", "Russia, Ukraine trade drone strikes as talks go on"),
-    ("EUROPE", "CRIME", "German police warn of rising hybrid cyber threats"),
-    ("EUROPE", "SPORT", "Man Utd chase Como star Paz, Thursday gossip says"),
-    ("MIDDLE EAST", "POLITICS", "Peace Council warns Gaza rebuild has stalled"),
-    ("N. AMERICA", "POLITICS", "Democrats gain most Senate seats in 70 years"),
-    ("WORLD", "SCIENCE", "Merck launches new rabies vaccine for pets"),
-    ("MIDDLE EAST", "POLITICS", "NGO: Israel limits care for 1,100 child amputees"),
-    ("EUROPE", "POLITICS", "France counts 146,000 at cost-of-living marches"),
-    ("EUROPE", "POLITICS", "Soder urges deal on power tax and bracket creep"),
-    ("EUROPE", "WORLD", "Older Germans take twice the sick days, data show"),
-    ("EUROPE", "POLITICS", "Die Linke seeks windfall tax on defence profits"),
-    ("EUROPE", "POLITICS", "Most Germans see Russia as a threat, poll finds"),
-    ("EUROPE", "CRIME", "French navy seizes boat with 146kg drug haul"),
-    ("EUROPE", "TECH", "Germany debates phone cameras to catch drivers"),
-    ("EUROPE", "TECH", "AI in focus at German engineering summit"),
-    ("N. AMERICA", "POLITICS", "Senator reveals US arms stockpile spent on Iran war"),
-    ("ASIA", "TECH", "Tiny electric cars crowd China's city streets"),
-    ("WORLD", "SCIENCE", "NASA marks Voyager milestone with live talk"),
-    ("WORLD", "BUSINESS", "Gold holds above $4,100 as yields cool"),
-    ("OCEANIA", "SPORT", "Latham's duck ties Sehwag's opener record"),
-    ("N. AMERICA", "BUSINESS", "Amazon, Google hold big Anthropic stakes"),
-    ("N. AMERICA", "BUSINESS", "Anthropic revenue hits $33bn in nine months"),
+    ("NAMERICA", "POLITICS", "CANADA - Carney retools China ties, chases US deal"),
+    ("NAMERICA", "TECH", "USA - Senators: AI cyber threats outpace defences"),
+    ("ASIA", "POLITICS", "INDIA - Congress presses Modi govt on inflation"),
+    ("NAMERICA", "CRIME", "USA - McDonald's abuse: girls told to wait till 18"),
+    ("EUROPE", "CRIME", "EUROPE - Russian held for spying on Palantir"),
+    ("ASIA", "POLITICS", "ASIA - India, Japan review defence ties in 2+2"),
+    ("AFRICA", "POLITICS", "AFRICA - Somalia accuses UAE of secret bases"),
+    ("WORLD", "CULTURE", "WORLD - Islam on track as top faith by 2035: Pew"),
+    ("WORLD", "BUSINESS", "WORLD - Oil prices fall as Middle East risk rises"),
+    ("EUROPE", "POLITICS", "EUROPE - Prague crowds demand media freedom"),
+    ("EUROPE", "POLITICS", "EUROPE - Russia, Ukraine trade drone strikes"),
+    ("EUROPE", "TECH", "GERMANY - Police warn of hybrid cyber threats"),
+    ("EUROPE", "SPORT", "UK - Man Utd chase Como star Paz, gossip says"),
+    ("MIDEAST", "POLITICS", "GAZA - Peace Council: Gaza rebuild has stalled"),
+    ("NAMERICA", "HEALTH", "USA - Merck launches new rabies vaccine for pets"),
+    ("MIDEAST", "HEALTH", "GAZA - NGO: Israel limits care for 1,100 child amputees"),
+    ("EUROPE", "POLITICS", "FRANCE - 146,000 march over cost of living"),
+    ("EUROPE", "POLITICS", "GERMANY - Soder urges deal on power tax, brackets"),
+    ("EUROPE", "HEALTH", "GERMANY - Older Germans take twice the sick days"),
+    ("EUROPE", "POLITICS", "GERMANY - Die Linke seeks windfall tax on defence"),
+    ("EUROPE", "POLITICS", "GERMANY - Most Germans see Russia as a threat"),
+    ("EUROPE", "CRIME", "FRANCE - Navy seizes boat with 146kg drug haul"),
+    ("EUROPE", "POLITICS", "GERMANY - Debate on phone cameras for drivers"),
+    ("EUROPE", "TECH", "GERMANY - AI in focus at engineering summit"),
+    ("NAMERICA", "POLITICS", "USA - Senator: arms stockpile spent on Iran war"),
+    ("ASIA", "TECH", "CHINA - Tiny electric cars crowd city streets"),
+    ("NAMERICA", "SCIENCE", "USA - NASA hosts live Voyager talk today"),
+    ("WORLD", "BUSINESS", "WORLD - Gold holds above $4,100 as yields cool"),
+    ("OCEANIA", "SPORT", "NZ - Latham duck ties Sehwag opener record"),
+    ("NAMERICA", "BUSINESS", "USA - Amazon, Google hold big Anthropic stakes"),
+    ("NAMERICA", "BUSINESS", "USA - Anthropic revenue hits $33bn in nine months"),
+    ("ASIA", "POLITICS", "INDIA - Air India crash probe near done, Centre tells SC"),
+    ("NAMERICA", "BUSINESS", "USA - Nasdaq ends slide as Dow falls 561"),
+    ("NAMERICA", "BUSINESS", "USA - UnitedHealth sinks 10% on Medicare clawback"),
+    ("NAMERICA", "BUSINESS", "USA - Anthropic lines up $26bn private placement"),
 ]
 
-# Figures reported on 19 November itself: (big figure, what it is).
 NUMBERS = [
     ("$81.3B", "Anthropic IPO, largest ever"),
     ("13 YRS", "wait ends as GTA VI lands"),
     ("$1.5BN", "GTA VI pre-orders"),
     ("980M", "Anthropic shares sold"),
     ("60/4", "NZ at lunch in Wellington"),
-    ("150,000", "tents stuck at Gaza border"),
+    ("200,000", "evacuated ahead of Akvan"),
 ]
 
-REGION_ORDER = ["N. AMERICA", "S. AMERICA", "EUROPE", "MIDDLE EAST",
-                "AFRICA", "ASIA", "OCEANIA", "WORLD"]
-FIELD_ORDER = ["POLITICS", "BUSINESS", "TECH", "SCIENCE", "CULTURE",
-               "SPORT", "CRIME", "WEATHER", "WORLD"]
+REGION_ORDER = ["NAMERICA", "SAMERICA", "EUROPE", "MIDEAST", "AFRICA", "ASIA", "OCEANIA", "WORLD"]
+REGION_LABEL = {"NAMERICA": "N. AMERICA", "SAMERICA": "S. AMERICA", "EUROPE": "EUROPE",
+                "MIDEAST": "MIDDLE EAST", "AFRICA": "AFRICA", "ASIA": "ASIA",
+                "OCEANIA": "OCEANIA", "WORLD": "WORLD"}
+FIELD_ORDER = ["POLITICS", "BUSINESS", "TECH", "SCIENCE", "CULTURE", "SPORT", "CRIME", "WEATHER", "HEALTH", "WORLD"]
+FIELD_COLOR = {"POLITICS": RED, "BUSINESS": NAVY, "TECH": TEAL, "SCIENCE": (90, 60, 140),
+               "CULTURE": GOLD, "SPORT": (30, 130, 60), "CRIME": (120, 40, 90),
+               "WEATHER": (40, 120, 170), "HEALTH": (200, 90, 40), "WORLD": GREY}
 
-# ------------------------------------------------------------ dotted map
-# Rough continent outlines in (lon, lat), drawn from memory for the
-# dotted map; pins mark the 13 lead stories.
-CONTINENTS = [
-    [(-168, 66), (-150, 70), (-130, 71), (-115, 72), (-100, 72), (-90, 74),
-     (-82, 72), (-76, 70), (-68, 62), (-60, 58), (-55, 52), (-60, 46),
-     (-65, 44), (-70, 42), (-74, 39), (-76, 35), (-80, 32), (-81, 26),
-     (-84, 30), (-90, 21), (-94, 17), (-97, 16), (-100, 20), (-105, 22),
-     (-110, 24), (-114, 29), (-120, 34), (-124, 40), (-124, 48), (-130, 55),
-     (-140, 60), (-152, 58), (-162, 55), (-166, 60)],
-    [(-79, 9), (-72, 11), (-64, 10), (-58, 6), (-52, 4), (-50, 0),
-     (-44, -3), (-38, -6), (-35, -9), (-38, -15), (-40, -22), (-46, -26),
-     (-52, -32), (-58, -36), (-62, -41), (-66, -47), (-68, -52), (-71, -54),
-     (-73, -48), (-73, -38), (-71, -30), (-70, -20), (-76, -14), (-79, -6),
-     (-81, 0)],
-    [(-17, 15), (-15, 22), (-10, 29), (-6, 33), (0, 36), (8, 37), (11, 34),
-     (18, 33), (22, 33), (30, 31), (33, 28), (36, 22), (39, 18), (43, 12),
-     (48, 11), (51, 12), (48, 5), (44, 0), (40, -8), (38, -16), (34, -24),
-     (30, -30), (26, -34), (20, -35), (16, -30), (13, -20), (12, -12),
-     (9, -2), (9, 4), (2, 6), (-6, 5), (-12, 8), (-16, 12)],
-    [(-10, 36), (-9, 42), (-4, 44), (-1, 46), (0, 49), (3, 51), (6, 54),
-     (8, 57), (12, 56), (18, 56), (21, 55), (24, 58), (28, 60), (30, 62),
-     (32, 68), (38, 68), (46, 68), (54, 69), (62, 70), (70, 72), (78, 73),
-     (88, 74), (100, 76), (112, 74), (124, 73), (136, 72), (148, 71),
-     (158, 70), (170, 68), (178, 66), (173, 64), (168, 60), (162, 58),
-     (158, 53), (152, 56), (144, 52), (142, 46), (140, 40), (134, 36),
-     (128, 34), (122, 30), (118, 26), (112, 22), (108, 18), (106, 10),
-     (103, 8), (100, 10), (98, 14), (94, 18), (90, 22), (86, 20), (82, 16),
-     (80, 10), (77, 8), (74, 12), (72, 20), (68, 24), (62, 25), (58, 26),
-     (54, 27), (50, 29), (48, 30), (44, 30), (40, 36), (36, 36), (32, 36),
-     (28, 37), (24, 36), (22, 37), (20, 40), (18, 40), (16, 42), (14, 44),
-     (12, 44), (8, 44), (6, 43), (3, 43), (0, 40), (-2, 37), (-6, 36)],
-    [(113, -22), (114, -28), (115, -33), (120, -34), (126, -32), (130, -32),
-     (134, -33), (138, -35), (142, -38), (147, -39), (150, -37), (153, -32),
-     (153, -27), (150, -23), (147, -19), (144, -15), (142, -11), (140, -17),
-     (136, -12), (132, -11), (128, -14), (124, -15), (120, -20), (116, -21)],
-    [(-5, 50), (-3, 53), (-5, 56), (-3, 58), (0, 53), (1, 51)],
-    [(130, 31), (132, 33), (134, 34), (137, 35), (139, 36), (140, 38),
-     (141, 41), (142, 43), (144, 44), (141, 45), (139, 42), (137, 38),
-     (134, 35), (131, 33)],
-    [(95, 5), (98, 3), (100, 0), (103, -3), (106, -6), (110, -7), (114, -8),
-     (118, -9), (122, -10), (126, -8), (130, -4), (132, -2), (136, -2),
-     (140, -3), (141, -6), (138, -8), (132, -7), (126, -6), (120, -8),
-     (114, -9), (108, -8), (102, -4), (98, 2)],
-    [(167, -45), (170, -42), (173, -40), (175, -38), (177, -38), (178, -37),
-     (176, -40), (174, -41), (172, -43), (169, -46)],
-    [(-45, 60), (-40, 64), (-32, 68), (-25, 70), (-20, 74), (-25, 78),
-     (-35, 80), (-48, 78), (-56, 74), (-58, 68), (-54, 64), (-50, 60)],
-    [(-22, 64), (-18, 63), (-14, 64), (-16, 66), (-20, 66), (-24, 65)],
-]
-
-# Leads 8 and 9 both sit on Israel and Gaza: pin 9 is offset with a
-# leader line back to Gaza.
-PIN_OFFSET = {9: (16, -12)}
+FOOTER_LEFT_OUT = ("LEFT OUT ON PURPOSE: VENEZUELA $12BN KPMG REPORT (12 NOV); "
+                   "EISENKOT MANDATE (8 NOV); ESTONIA BORDER CLOSURE (15 NOV); "
+                   "STACY KEACH DIES (10 NOV); JEFFRIES NOMINATION 251-11 (18 NOV); "
+                   "VOYAGER 1 ONE LIGHT-DAY (18 NOV); EU 45BN EURO UKRAINE LOAN (18 NOV); "
+                   "NVIDIA $115.8BN QUARTER (17 NOV); SPAIN GENERAL STRIKE (11 NOV); "
+                   "GAZA TENTS STATEMENT (15 NOV); MELENCHON WARNING (18 NOV); "
+                   "LIBYA DRUG HAUL (18 NOV).")
+SOURCES = ("SOURCES: REUTERS, AP, BBC NEWS, NPR, SENSOR TOWER, NATIONAL WEATHER SERVICE, "
+           "FLORIDA TODAY, THE HINDU BUSINESS LINE, TRADERS UNION, BANXICO, THE CHRONICLE.")
 
 
-def inside(px, py, poly):
-    hit = False
-    n = len(poly)
-    for i in range(n):
-        x1, y1 = poly[i]
-        x2, y2 = poly[(i + 1) % n]
-        if (y1 > py) != (y2 > py):
-            xi = x1 + (x2 - x1) * (py - y1) / (y2 - y1)
-            if px < xi:
-                hit = not hit
-    return hit
+# ---------------------------------------------------------------- scenes
+def _sky(cv, x, y, w, h, top, bot):
+    cv.rect(x, y, w, h // 2, top)
+    cv.rect(x, y + h // 2, w, h - h // 2, bot)
 
 
-def draw_map(s, x, y, w, h):
-    s.frame(x, y, w, h, INK, 1)
-    lon0, lon1, lat0, lat1 = -180, 180, 74, -58
-    sc = min(w / (lon1 - lon0), h / (lat0 - lat1))
-    ox = x + (w - (lon1 - lon0) * sc) / 2
-    oy = y + (h - (lat0 - lat1) * sc) / 2
-
-    def proj(lon, lat):
-        return int(ox + (lon - lon0) * sc), int(oy + (lat0 - lat) * sc)
-
-    lat = 72
-    while lat >= -56:
-        lon = -178
-        while lon <= 178:
-            for poly in CONTINENTS:
-                if inside(lon, lat, poly):
-                    px, py = proj(lon, lat)
-                    s.box(px, py, 2, 2, BLUE)
-                    break
-            lon += 3
-        lat -= 3
-    for lead in LEADS:
-        num, _rg, _fd, _tg, _sc, lon, lat, _hl, _dk = lead
-        px, py = proj(lon, lat)
-        dx, dy = PIN_OFFSET.get(num, (0, 0))
-        qx, qy = px + dx, py + dy
-        if (dx, dy) != (0, 0):
-            s.seg(px, py, qx, qy, RED, 1)
-        s.disc(qx, qy, 7, RED)
-        s.ring(qx, qy, 7, WHITE, 1)
-        num_s = str(num)
-        s.text(qx - text_width(num_s, 1) // 2, qy - 3, num_s, WHITE, 1)
+def _building(cv, x, y, w, h, c, lit):
+    cv.rect(x, y, w, h, c)
+    for wy in range(y + 4, y + h - 3, 7):
+        for wx in range(x + 3, x + w - 3, 6):
+            if (wx * 7 + wy * 13) % 5 < 2:
+                cv.rect(wx, wy, 2, 3, lit)
 
 
-# -------------------------------------------------------------- page parts
-def count_by(stories, idx):
-    counts = {}
-    for st in stories:
-        key = st[idx]
-        counts[key] = counts.get(key, 0) + 1
-    return counts
+def _flag(cv, x, y, w, h, kind):
+    cv.line(x, y, x, y + h + 14, INK)
+    if kind == "us":
+        cv.rect(x, y, w, h, (200, 40, 40))
+        for i in range(4):
+            cv.rect(x, y + i * (h // 4), w, h // 8, (255, 255, 255))
+        cv.rect(x, y, w // 2, h // 2, NAVY)
+    elif kind == "cn":
+        cv.rect(x, y, w, h, (220, 30, 30))
+        cv.disc(x + 5, y + 4, 2, GOLD)
+    elif kind == "ru":
+        cv.rect(x, y, w, h // 3, (255, 255, 255))
+        cv.rect(x, y + h // 3, w, h // 3, (40, 80, 200))
+        cv.rect(x, y + 2 * h // 3, w, h // 3 + 1, (200, 40, 40))
+    elif kind == "uk":
+        cv.rect(x, y, w, h, NAVY)
+        cv.rect(x + w // 2 - 1, y, 3, h, (255, 255, 255))
+        cv.rect(x, y + h // 2 - 1, w, 3, (255, 255, 255))
+        cv.rect(x + w // 2 - 1, y, 1, h, RED)
+        cv.rect(x, y + h // 2 - 1, w, 1, RED)
+    elif kind == "in":
+        cv.rect(x, y, w, h // 3, (230, 120, 30))
+        cv.rect(x, y + h // 3, w, h // 3, (255, 255, 255))
+        cv.rect(x, y + 2 * h // 3, w, h // 3 + 1, (30, 130, 60))
+        cv.disc(x + w // 2, y + h // 2, 2, NAVY)
 
 
-def draw_bars(s, y, label, order, counts, color):
-    s.text(16, y, label, INK, 1, bold=True)
-    cx = 16 + text_width(label, 1, True) + 12
-    for name in order:
-        n = counts.get(name, 0)
-        if not n:
+def _person(cv, x, y, s, shirt, skin=(220, 180, 140)):
+    cv.disc(x, y, 3 * s // 2, skin)
+    cv.rect(x - 3 * s // 2, y + 3 * s // 2, 3 * s, 5 * s, shirt)
+    cv.rect(x - 3 * s // 2, y + 8 * s // 2, s, 5 * s, INK)
+    cv.rect(x + s // 2, y + 8 * s // 2, s, 5 * s, INK)
+
+
+def draw_scene(cv, key, x, y, w, h):
+    if key == "gta":
+        _sky(cv, x, y, w, h, (120, 60, 140), (240, 120, 60))
+        cv.disc(x + w - w // 5, y + h // 4, h // 5, (255, 210, 90))
+        for i, bh in enumerate((h // 2, h // 3, h * 3 // 5, h // 4, h // 2)):
+            _building(cv, x + 4 + i * (w // 6), y + h - 14 - bh, w // 8, bh, (30, 20, 40), (255, 220, 100))
+        cv.rect(x, y + h - 14, w, 14, (40, 40, 50))
+        for dx in range(4, w - 4, 16):
+            cv.rect(x + dx, y + h - 8, 8, 2, (255, 255, 255))
+        cv.rect(x + w // 4, y + h - 26, w // 3, 8, (230, 60, 140))
+        cv.rect(x + w // 4 + 4, y + h - 32, w // 5, 6, (230, 60, 140))
+        cv.disc(x + w // 4 + 6, y + h - 16, 3, INK)
+        cv.disc(x + w // 4 + w // 3 - 6, y + h - 16, 3, INK)
+        cv.line(x + w - 14, y + h - 14, x + w - 8, y + h - 30, (30, 130, 60))
+        cv.line(x + w - 14, y + h - 30, x + w - 22, y + h - 26, (30, 130, 60))
+        cv.line(x + w - 14, y + h - 30, x + w - 6, y + h - 26, (30, 130, 60))
+    elif key == "apec":
+        _sky(cv, x, y, w, h, SKY, (210, 225, 235))
+        _flag(cv, x + w // 6, y + 4, 18, 12, "us")
+        _flag(cv, x + w // 2 - 9, y + 4, 18, 12, "cn")
+        _flag(cv, x + 5 * w // 6 - 18, y + 4, 18, 12, "ru")
+        cv.rect(x + 6, y + h - 18, w - 12, 8, (120, 80, 40))
+        cv.rect(x + 6, y + h - 26, w - 12, 8, (150, 105, 55))
+        _person(cv, x + w // 5, y + h - 40, 1, NAVY)
+        _person(cv, x + w // 2, y + h - 40, 1, RED)
+        _person(cv, x + 4 * w // 5, y + h - 40, 1, (60, 60, 60))
+    elif key == "ipo":
+        cv.rect(x, y, w, h, NAVY)
+        cv.disc(x + w - 18, y + 12, 8, GOLD)
+        cv.text(x + w - 21, y + 9, "$", 1, NAVY, True)
+        pts = [(x + 4, y + h - 10), (x + w // 4, y + h - 18), (x + w // 2, y + h - 26),
+               (x + 3 * w // 4, y + h - 34), (x + w - 6, y + h - 42)]
+        for a, b in zip(pts, pts[1:]):
+            cv.line(a[0], a[1], b[0], b[1], (60, 200, 90))
+            cv.line(a[0], a[1] + 1, b[0], b[1] + 1, (60, 200, 90))
+        cv.rect(x + w // 3, y + h - 20, 6, 12, RED)
+        cv.rect(x + w // 2, y + h - 26, 6, 18, (60, 200, 90))
+        cv.text(x + 4, y + 4, "ANT $83", 1, (255, 255, 255), True)
+    elif key == "bridge":
+        _sky(cv, x, y, w, h, SKY, (190, 215, 230))
+        cv.rect(x, y + h // 2, w, h // 2, (40, 110, 170))
+        cv.rect(x, y + h // 2 - 6, w, 6, (120, 120, 125))
+        cv.rect(x + w // 4, y + 8, 4, h // 2, (90, 90, 95))
+        cv.rect(x + 3 * w // 4, y + 8, 4, h // 2, (90, 90, 95))
+        cv.line(x + w // 4 + 2, y + 8, x + w // 2, y + h // 2 - 6, (90, 90, 95))
+        cv.line(x + 3 * w // 4 + 2, y + 8, x + w // 2, y + h // 2 - 6, (90, 90, 95))
+        ex, ey = x + w // 2, y + h // 2 - 10
+        for dx, dy in ((0, -12), (10, -6), (12, 4), (4, 12), (-6, 10), (-12, 2), (-9, -8), (6, -11)):
+            cv.tri(ex, ey, ex + dx, ey + dy, ex + dx // 2 + 3, ey + dy // 2 - 3, (255, 140, 0))
+        cv.disc(ex, ey, 5, (255, 220, 60))
+        cv.disc(ex - 14, ey - 8, 5, (120, 120, 120))
+        cv.disc(ex + 16, ey - 6, 4, (120, 120, 120))
+    elif key == "court":
+        _sky(cv, x, y, w, h, SKY, (215, 225, 235))
+        cv.rect(x + 6, y + h - 10, w - 12, 10, (160, 150, 130))
+        cv.tri(x + 4, y + 8, x + w - 4, y + 8, x + w // 2, y + 2, (230, 220, 200))
+        for i in range(4):
+            cx0 = x + 12 + i * (w - 24) // 4
+            cv.rect(cx0, y + 10, 6, h - 22, (240, 235, 220))
+            cv.rect(cx0 - 2, y + 8, 10, 3, (240, 235, 220))
+        cv.rect(x + w // 2 - 8, y + h - 24, 16, 14, (90, 60, 40))
+    elif key == "cyclone":
+        _sky(cv, x, y, w, h, (150, 180, 210), (190, 205, 225))
+        cx0, cy0 = x + w // 3, y + h // 2
+        for r in range(4, h // 2, 5):
+            cv.circle(cx0, cy0, r, (255, 255, 255))
+        cv.disc(cx0, cy0, 3, NAVY)
+        cv.tri(x + 2 * w // 3, y + h - 16, x + w - 2, y + h - 16, x + 5 * w // 6, y + h // 2, (220, 170, 90))
+        cv.rect(x + 2 * w // 3, y + h - 16, w // 3, 4, (200, 150, 70))
+        for i in range(6):
+            cv.line(x + 8 + i * 12, y + 4, x + 4 + i * 12, y + 12, (200, 220, 240))
+    elif key == "gaza":
+        _sky(cv, x, y, w, h, (220, 200, 150), (200, 175, 120))
+        for i in range(3):
+            tx = x + 8 + i * (w // 3)
+            cv.tri(tx, y + h - 14, tx + 20, y + h - 14, tx + 10, y + h - 28, (240, 235, 220))
+        for dx in range(0, w, 10):
+            cv.rect(x + dx, y + h // 2, 5, 2, GOLD)
+        cv.rect(x + w // 2 - 18, y + h - 26, 30, 10, (60, 90, 50))
+        cv.rect(x + w // 2 - 10, y + h - 32, 12, 7, (60, 90, 50))
+        cv.line(x + w // 2 + 2, y + h - 29, x + w // 2 + 20, y + h - 29, INK)
+        cv.disc(x + w // 2 - 12, y + h - 15, 3, INK)
+        cv.disc(x + w // 2 + 6, y + h - 15, 3, INK)
+    elif key == "stocks":
+        cv.rect(x, y, w, h, (255, 255, 255))
+        cv.rect(x, y + h - 14, w, 2, GREY)
+        for i, hh in enumerate((14, 10, 16, 8, 12)):
+            bx = x + 10 + i * (w // 6)
+            cv.rect(bx, y + 10 + i * 3, 8, hh, RED)
+            cv.line(bx + 4, y + 6 + i * 3, bx + 4, y + 12 + i * 3 + hh, RED)
+        pts = [(x + 4, y + 8), (x + w // 4, y + 16), (x + w // 2, y + 22),
+               (x + 3 * w // 4, y + 30), (x + w - 6, y + h - 18)]
+        for a, b in zip(pts, pts[1:]):
+            cv.line(a[0], a[1], b[0], b[1], RED)
+            cv.line(a[0], a[1] + 1, b[0], b[1] + 1, RED)
+        cv.text(x + 4, y + h - 12, "-0.23%", 1, RED, True)
+    elif key == "cricket":
+        _sky(cv, x, y, w, h, SKY, (200, 225, 235))
+        cv.rect(x, y + h - 20, w, 20, (70, 160, 80))
+        cv.rect(x + w // 3, y + h - 20, w // 3, 20, (190, 160, 110))
+        for i in range(3):
+            cv.rect(x + w // 2 - 6 + i * 5, y + h - 34, 2, 14, (255, 255, 255))
+        cv.rect(x + w // 2 - 6, y + h - 36, 14, 2, (255, 255, 255))
+        _person(cv, x + w // 5, y + h - 40, 1, (30, 130, 60))
+        cv.disc(x + w // 2 + 14, y + h - 30, 3, RED)
+        cv.rect(x + w - 22, y + h - 34, 14, 12, (255, 255, 255))
+        cv.text(x + w - 20, y + h - 32, "60", 1, INK, True)
+    elif key == "flood":
+        _sky(cv, x, y, w, h, (120, 140, 165), (150, 170, 190))
+        for i in range(8):
+            cv.line(x + 6 + i * 14, y + 2, x + 2 + i * 14, y + 10, (200, 220, 240))
+        cv.rect(x, y + h // 2, w, h // 2, (50, 110, 170))
+        cv.rect(x + 8, y + h // 2 - 14, 30, 14, (240, 220, 180))
+        cv.tri(x + 4, y + h // 2 - 14, x + 42, y + h // 2 - 14, x + 23, y + h // 2 - 26, (180, 60, 50))
+        cv.rect(x + w // 2, y + h - 12, 34, 8, (200, 60, 60))
+        cv.rect(x + w // 2 + 4, y + h - 18, 24, 6, (200, 60, 60))
+        cv.line(x + w - 16, y + h // 2 - 4, x + w - 10, y + h // 2 - 20, (30, 130, 60))
+        cv.line(x + w - 10, y + h // 2 - 20, x + w - 20, y + h // 2 - 16, (30, 130, 60))
+    elif key == "saudi":
+        _sky(cv, x, y, w, h, (240, 200, 130), (230, 180, 110))
+        for i, bh in enumerate((h // 3, h // 2, h // 4)):
+            _building(cv, x + 6 + i * (w // 4), y + h - 12 - bh, w // 6, bh, (180, 160, 120), (255, 240, 180))
+        cv.line(x + w // 2, y + 6, x + w // 2 + 16, y + h // 2, (255, 255, 255))
+        cv.line(x + w // 2 + 16, y + h // 2, x + w // 2 + 22, y + h // 2 + 8, (255, 140, 0))
+        cv.disc(x + w // 2 + 24, y + h // 2 + 10, 4, (255, 140, 0))
+        cv.disc(x + w // 2 + 26, y + h // 2 + 12, 2, (255, 220, 60))
+        cv.line(x + w // 3, y + h - 12, x + w // 3 + 10, y + h // 2 + 6, (255, 255, 255))
+    elif key == "bank":
+        _sky(cv, x, y, w, h, SKY, (215, 225, 235))
+        cv.tri(x + 8, y + 10, x + w - 8, y + 10, x + w // 2, y + 2, (200, 190, 160))
+        for i in range(4):
+            cx0 = x + 14 + i * (w - 28) // 4
+            cv.rect(cx0, y + 12, 6, h - 24, (240, 235, 220))
+        cv.rect(x + 6, y + h - 12, w - 12, 12, (160, 150, 130))
+        cv.disc(x + w - 16, y + 12, 7, GOLD)
+        cv.text(x + w - 19, y + 9, "$", 1, INK, True)
+        cv.text(x + 6, y + h - 11, "6.25%", 1, NAVY, True)
+    elif key == "royal":
+        _sky(cv, x, y, w, h, SKY, (215, 225, 235))
+        _flag(cv, x + w // 5, y + 4, 18, 12, "uk")
+        _flag(cv, x + 3 * w // 5, y + 4, 18, 12, "in")
+        cv.rect(x, y + h - 12, w, 12, (150, 40, 40))
+        _person(cv, x + w // 3, y + h - 38, 1, NAVY)
+        _person(cv, x + 2 * w // 3, y + h - 38, 1, (90, 60, 140))
+        cv.line(x + w // 3 + 5, y + h - 30, x + 2 * w // 3 - 5, y + h - 30, (220, 180, 140))
+    else:
+        cv.rect(x, y, w, h, SKY)
+
+
+def _badge(cv, x, y, n):
+    cv.rect(x, y, 16, 14, RED)
+    s = str(n)
+    cv.text(x + (16 - text_w(s, 1)) // 2, y + 3, s, 1, (255, 255, 255), True)
+
+
+def _counts(items):
+    rc, fc = {}, {}
+    for r, f, _t in items:
+        rc[r] = rc.get(r, 0) + 1
+        fc[f] = fc.get(f, 0) + 1
+    return rc, fc
+
+
+def build():
+    cv = Canvas(W, H, PAPER)
+    # masthead
+    cv.text(8, 4, "THE WORLD IN ONE PICTURE", 4, INK, True)
+    cv.text(8, 38, "THURSDAY 19 NOVEMBER 2026  |  48 STORIES  |  ONE IMAGE", 1, RED, True)
+    cv.rect(8, 54, 1008, 2, INK)
+    # hero lead 1
+    hero = LEADS[0]
+    cv.frame(8, 60, 1008, 130, INK)
+    draw_scene(cv, "gta", 9, 61, 500, 128)
+    _badge(cv, 9, 61, 1)
+    tx = 520
+    cv.text(tx, 68, hero["kicker"], 1, RED, True)
+    y = cv.text_lines(tx, 82, wrap(hero["head"], 480, 3), 3, INK, True, lh=26)
+    y = cv.text_lines(tx, y + 4, wrap(hero["deck"], 480, 1), 1, INK, False, lh=9)
+    cv.text(tx, y + 6, "INSIDE: 12 MORE LEADS - BY THE NUMBERS - MAP - 35 BRIEFS", 1, GREY, True)
+    # lead grid: 12 cards, 3 rows x 4
+    cw, ch, gx, gy = 246, 124, 8, 6
+    for idx, lead in enumerate(LEADS[1:]):
+        r, c = divmod(idx, 4)
+        x = 8 + c * (cw + gx)
+        yy = 196 + r * (ch + gy)
+        cv.frame(x, yy, cw, ch, INK)
+        draw_scene(cv, lead["scene"], x + 1, yy + 1, cw - 2, 44)
+        _badge(cv, x + 1, yy + 1, lead["n"])
+        cv.text(x + 5, yy + 49, lead["kicker"], 1, RED, True)
+        hy = cv.text_lines(x + 5, yy + 60, wrap(lead["head"], cw - 10, 2), 2, INK, True, lh=15)
+        cv.text_lines(x + 5, hy + 1, wrap(lead["deck"], cw - 10, 1)[:1], 1, INK, False, lh=9)
+    # numbers strip
+    ny = 584
+    bw = 166
+    for i, (val, lab) in enumerate(NUMBERS):
+        x = 8 + i * (bw + 4)
+        cv.frame(x, ny, bw, 46, INK)
+        cv.text(x + 6, ny + 5, val, 2, RED, True)
+        cv.text_lines(x + 6, ny + 24, wrap(lab, bw - 12, 1), 1, INK, False, lh=9)
+    # region + field counts
+    items = [(ld["region"], ld["field"], "") for ld in LEADS]
+    items += [(r, f, t) for r, f, t in BRIEFS]
+    rc, fc = _counts(items)
+    ry = 636
+    cv.text(8, ry, "REGIONS", 1, RED, True)
+    rx = 70
+    for reg in REGION_ORDER:
+        s = "%s %d" % (REGION_LABEL[reg], rc.get(reg, 0))
+        rx = cv.text(rx, ry, s, 1, INK, True) + 12
+    fy = 650
+    cv.text(8, fy, "FIELDS", 1, RED, True)
+    fx = 70
+    for fld in FIELD_ORDER:
+        if fc.get(fld, 0) == 0:
             continue
-        lab = "%s %d" % (name, n)
-        s.text(cx, y, lab, INK, 1)
-        cx += text_width(lab, 1) + 6
-        s.box(cx, y + 1, n * 6, 5, color)
-        cx += n * 6 + 12
-
-
-def lead_card(s, x, y, w, h, lead):
-    num, _rg, _fd, tag, scene, _lon, _lat, headline, deck = lead
-    s.frame(x, y, w, h, INK, 1)
-    SCENES[scene](s, x + 1, y + 1, w - 2, 80)
-    s.box(x + 1, y + 1, 20, 14, RED)
-    num_s = str(num)
-    s.text(x + 1 + (20 - text_width(num_s, 1)) // 2, y + 4, num_s, WHITE, 1)
-    s.text(x + 6, y + 85, tag, RED, 1, bold=True)
-    yy = y + 95
-    for ln in wrap_text(headline, w - 12, 1, True)[:3]:
-        s.text(x + 6, yy, ln, INK, 1, bold=True)
-        yy += 10
-    yy = y + 127
-    for ln in wrap_text(deck, w - 12, 1)[:2]:
-        s.text(x + 6, yy, ln, GREY, 1)
-        yy += 9
-
-
-def hero_card(s, x, y, w, h, lead):
-    _num, _rg, _fd, tag, scene, _lon, _lat, headline, deck = lead
-    s.frame(x, y, w, h, INK, 1)
-    iw = 470
-    SCENES[scene](s, x + 1, y + 1, iw, h - 2)
-    s.box(x + 1, y + 1, 20, 14, RED)
-    s.text(x + 5, y + 4, "1", WHITE, 1)
-    tx = x + iw + 14
-    tw = w - iw - 28
-    s.text(tx, y + 8, tag, RED, 1, bold=True)
-    yy = y + 22
-    for ln in wrap_text(headline, tw, 2, True)[:3]:
-        s.text(tx, yy, ln, INK, 2, bold=True)
-        yy += 16
-    yy = y + 74
-    for ln in wrap_text(deck, tw, 1)[:2]:
-        s.text(tx, yy, ln, GREY, 1)
-        yy += 9
-    s.hline(tx, y + 98, tw, LIGHT, 1)
-    s.text(tx, y + 104, "INSIDE: 12 MORE LEADS - BY THE NUMBERS - MAP - 35 BRIEFS",
-           INK, 1)
-
-
-# -------------------------------------------------------------------- main
-def out_path():
-    d = os.environ.get("MAKEFUN_OUTPUT_DIR")
-    if d:
-        return os.path.join(d, "entry.png")
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(here, "entry.png")
+        s = "%s %d" % (fld, fc.get(fld, 0))
+        cv.rect(fx, fy + 1, 6, 6, FIELD_COLOR[fld])
+        fx = cv.text(fx + 9, fy, s, 1, INK, True) + 12
+    # bottom: map + briefs
+    by = 666
+    cv.text(8, by, "WHERE THE NEWS HAPPENED", 1, RED, True)
+    cv.text(316, by, "THE DAY IN BRIEF - 35 MORE STORIES", 1, RED, True)
+    cv.rect(8, by + 12, 1008, 1, INK)
+    mx, my, mw, mh = 8, 682, 298, 266
+    cv.frame(mx, my, mw, mh, INK)
+    blobs = [(-100, 48, 38, 18), (-60, -12, 13, 20), (12, 52, 20, 12),
+             (18, 4, 20, 26), (95, 45, 48, 22), (134, -25, 16, 10)]
+    for gy2 in range(my + 4, my + mh - 4, 5):
+        for gx2 in range(mx + 4, mx + mw - 4, 5):
+            lon = (gx2 - mx) / mw * 360 - 180
+            lat = 90 - (gy2 - my) / mh * 180
+            for (lc, tc, lr, tr) in blobs:
+                if ((lon - lc) / lr) ** 2 + ((lat - tc) / tr) ** 2 <= 1:
+                    cv.rect(gx2, gy2, 2, 2, NAVY)
+                    break
+    for lead in LEADS:
+        lon, lat = lead["pin"]
+        px = mx + int((lon + 180) / 360 * mw)
+        py = my + int((90 - lat) / 180 * mh)
+        cv.disc(px, py, 8, RED)
+        cv.frame(px - 8, py - 8, 16, 16, (255, 255, 255))
+        s = str(lead["n"])
+        cv.text(px - text_w(s, 1) // 2, py - 3, s, 1, (255, 255, 255), True)
+    cols = [BRIEFS[:18], BRIEFS[18:]]
+    for ci, col in enumerate(cols):
+        bx = 316 + ci * 354
+        yy = by + 18
+        for _r, _f, t in col:
+            cv.text(bx, yy, t, 1, INK, False)
+            yy += 14
+    # footer
+    fy2 = 954
+    cv.rect(8, fy2, 1008, 2, INK)
+    y = cv.text_lines(8, fy2 + 6, wrap(
+        "DATE CHECK: EVERY STORY ON THIS PAGE HAPPENED, OR WAS FIRST REPORTED, "
+        "ON THURSDAY 19 NOVEMBER 2026.", 1008, 1), 1, RED, True, lh=9)
+    y = cv.text_lines(8, y + 2, wrap(FOOTER_LEFT_OUT, 1008, 1), 1, INK, False, lh=9)
+    cv.text_lines(8, y + 2, wrap(SOURCES, 1008, 1), 1, GREY, False, lh=9)
+    return cv
 
 
 def main():
-    assert len(LEADS) + len(BRIEFS) == 48, "story count must be 48"
-    assert len(LEADS) == 13 and len(BRIEFS) == 35
-    s = Sheet()
-    # masthead
-    s.hline(16, 10, 992, INK, 2)
-    s.centred(16, "THE WORLD IN ONE PICTURE", INK, 4, bold=True)
-    s.centred(48, "THURSDAY 19 NOVEMBER 2026 | 48 STORIES | ONE IMAGE",
-              GREY, 1, bold=True)
-    s.hline(16, 60, 992, INK, 2)
-    # hero lead: GTA VI
-    hero_card(s, 16, 68, 992, 122, LEADS[0])
-    # 12 more illustrated leads, 3 rows of 4
-    for i, lead in enumerate(LEADS[1:]):
-        row, col = divmod(i, 4)
-        lead_card(s, 16 + col * 250, 198 + row * 160, 242, 152, lead)
-    # by the numbers
-    s.frame(16, 678, 992, 50, INK, 1)
-    s.text(28, 690, "BY THE", RED, 1, bold=True)
-    s.text(28, 700, "NUMBERS", RED, 1, bold=True)
-    for i, (big, label) in enumerate(NUMBERS):
-        cx = 150 + i * 142
-        s.text(cx, 686, big, INK, 2, bold=True)
-        yy = 706
-        for ln in wrap_text(label, 138, 1)[:2]:
-            s.text(cx, yy, ln, GREY, 1)
-            yy += 9
-    # region and field bars, counted from the stories themselves
-    all_stories = [(rg, fd) for (_n, rg, fd, _t, _s, _lo, _la, _h, _d) in LEADS]
-    all_stories += [(rg, fd) for (rg, fd, _t) in BRIEFS]
-    draw_bars(s, 736, "REGIONS", REGION_ORDER,
-              count_by(all_stories, 0), BLUE)
-    draw_bars(s, 750, "FIELDS", FIELD_ORDER,
-              count_by(all_stories, 1), TEAL)
-    # map and briefs
-    s.text(16, 766, "WHERE THE NEWS HAPPENED", INK, 1, bold=True)
-    s.text(340, 766, "THE DAY IN BRIEF - 35 MORE STORIES", INK, 1, bold=True)
-    draw_map(s, 16, 778, 310, 180)
-    for i, (_rg, _fd, text) in enumerate(BRIEFS):
-        col = i // 18
-        row = i % 18
-        s.text(340 + col * 336, 778 + row * 10, text, INK, 1)
-    # footer: date check, the 18 November stories left out, sources
-    s.centred(966, "DATE CHECK: ALL 48 STORIES WERE REPORTED ON "
-              "THURSDAY 19 NOVEMBER 2026.", INK, 1, bold=True)
-    s.centred(978, "LEFT OUT, FIRST REPORTED 18 NOV: VAN GOGH $190.4M SALE - "
-              "JEFFRIES NOMINATION - FED MINUTES -", INK, 1)
-    s.centred(990, "EU \u20ac45BN LOAN - GAZA YELLOW LINE RAID - VOYAGER 1 "
-              "CROSSING - DUCKETT 133.", INK, 1)
-    s.centred(1002, "SOURCES: BBC NEWS, REUTERS, AP, CNN, THE HINDU, "
-              "CRICTRACKER, LE MONDE, BUSINESSWORLD, NDTV", GREY, 1)
-    path = out_path()
-    write_png(s, path)
-    print("wrote %s 1024x1024, %d stories (%d leads, %d briefs)"
-          % (path, len(LEADS) + len(BRIEFS), len(LEADS), len(BRIEFS)))
+    cv = build()
+    outdir = os.environ.get("MAKEFUN_OUTPUT_DIR")
+    base = outdir if outdir else os.path.dirname(os.path.abspath(__file__))
+    os.makedirs(base, exist_ok=True)
+    path = os.path.join(base, "entry.png")
+    with open(path, "wb") as fh:
+        fh.write(png_bytes(W, H, cv.px))
+    print("wrote", path)
 
 
 if __name__ == "__main__":
